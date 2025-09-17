@@ -1,0 +1,24 @@
+@'
+# Python
+__pycache__/
+*.pyc
+venv/
+env/
+.env
+
+# Logs & outputs
+*.log
+honeypot.log
+*.jsonl
+
+# Keys & credentials
+id_ed25519
+id_ed25519.pub
+*.pem
+*.key
+
+# Editor/OS
+.vscode/
+Thumbs.db
+.DS_Store
+'@ > .gitignore
