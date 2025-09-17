@@ -1,52 +1,54 @@
-#!/usr/bin/env python3
 import socket
 import threading
+import paramiko
+import sys
 import datetime
 
 LOG_FILE = "honeypot.log"
-HOST = "0.0.0.0"   # listen on all interfaces
-PORT = 2222        # fake SSH port (never use 22)
+HOST_KEY = paramiko.RSAKey.generate(2048)
+HOST = "0.0.0.0"
+PORT = 2222
 
-# Function to handle each client connection
-def handle_client(client, addr):
-    print(f"[!] Connection attempt from {addr}")
+class SSHServer(paramiko.ServerInterface):
+    def __init__(self, client_addr):
+        self.client_addr = client_addr
+        self.event = threading.Event()
 
+    def check_auth_password(self, username, password):
+        # Log username/password attempts
+        with open(LOG_FILE, "a") as f:
+            f.write(f"{datetime.datetime.now()} - {self.client_addr} - username: {username}, password: {password}\n")
+        return paramiko.AUTH_FAILED  # never allow login
+
+    def check_channel_request(self, kind, chanid):
+        if kind == "session":
+            return paramiko.OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
+        return paramiko.OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
+
+def handle_connection(client, addr):
+    transport = paramiko.Transport(client)
+    transport.add_server_key(HOST_KEY)
+    server = SSHServer(addr)
     try:
-        # Send fake SSH banner
-        client.send(b"SSH-2.0-OpenSSH_8.2p1 Ubuntu-4ubuntu0.5\r\n")
-
-        # Receive first message from client
-        data = client.recv(1024)
-        if data:
-            # Log initial client data (often username attempt)
-            print(f"[!] Received from {addr}: {data}")
-            with open(LOG_FILE, "a") as f:
-                f.write(f"{datetime.datetime.now()} - {addr} - {data}\n")
-
-        # Send fake password prompt (optional)
-        client.send(b"Password: ")
-        password = client.recv(1024)
-        if password:
-            print(f"[!] Password attempt from {addr}: {password}")
-            with open(LOG_FILE, "a") as f:
-                f.write(f"{datetime.datetime.now()} - {addr} - password: {password}\n")
-
+        transport.start_server(server=server)
+        # Wait for auth attempts (but we deny all)
+        transport.accept(20)
     except Exception as e:
-        print(f"[!] Error with {addr}: {e}")
+        print(f"[!] Exception from {addr}: {e}")
     finally:
-        client.close()
+        transport.close()
 
 def main():
-    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_socket.bind((HOST, PORT))
-    server_socket.listen(5)
-    print(f"[+] Starting fake SSH server on {HOST}:{PORT}")
-
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind((HOST, PORT))
+    sock.listen(100)
+    print(f"[+] Paramiko SSH honeypot listening on {HOST}:{PORT}")
+    
     while True:
-        client, addr = server_socket.accept()
-        # Handle each client in a separate thread
-        thread = threading.Thread(target=handle_client, args=(client, addr))
-        thread.start()
+        client, addr = sock.accept()
+        print(f"[!] Connection attempt from {addr}")
+        t = threading.Thread(target=handle_connection, args=(client, addr))
+        t.start()
 
 if __name__ == "__main__":
     main()
